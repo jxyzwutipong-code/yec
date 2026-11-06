@@ -109,6 +109,9 @@ function initCharts() {
 }
 
 // --- SCRIM REPLAY MODAL LOGIC ---
+// Roster template used when creating new scrims (taken from the sample data)
+const PLAYER_TEMPLATE = Object.values(scrimGameRecaps)[0].players.map(p => ({ name: p.name, role: p.role, isSub: !!p.isSub }));
+
 let scrimGameMeta = {
     1: { result: 'WIN', duration: '13:40' },
     2: { result: 'LOSS', duration: '16:15' },
@@ -131,8 +134,9 @@ let sessions = null;
 let currentSessionIdx = 0;
 function useSession(i) {
     currentSessionIdx = i;
-    scrimGameRecaps = sessions[i].recaps;
-    scrimGameMeta = sessions[i].meta;
+    const s = sessions[i];
+    scrimGameRecaps = s ? s.recaps : {};
+    scrimGameMeta = s ? s.meta : {};
     editingPlayer = null;
 }
 function loadStore() {
@@ -143,7 +147,7 @@ function loadStore() {
         const raw = localStorage.getItem(STORE_KEY);
         if (raw) {
             const d = JSON.parse(raw);
-            if (d.sessions && d.sessions.length) sessions = d.sessions;
+            if (Array.isArray(d.sessions)) sessions = d.sessions;
             else if (d.recaps && d.meta) { sessions[0].recaps = d.recaps; sessions[0].meta = d.meta; }
         }
     } catch (e) {}
@@ -180,6 +184,7 @@ function sessionScore(s) {
 function renderHighlight() {
     if (!sessions) loadStore();
     const cur = sessions[currentSessionIdx] || sessions[0];
+    if (!cur) { renderBoxes(); return; }
     const sc = sessionScore(cur);
     const dt = document.getElementById('md-datetime');
     if (dt) dt.textContent = cur.time + ' น. | ' + fmtDate(cur.date);
@@ -196,8 +201,8 @@ function boxHtml(s, i) {
     const scorePill = (sc.w + sc.l) > 0
         ? `<span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full">ผล ${sc.w} - ${sc.l}</span>`
         : `<span class="text-xs font-semibold text-gray-400 bg-gray-800/80 border border-gray-700 px-3 py-1 rounded-full">รอบันทึกผล</span>`;
-    const del = (isAdmin && sessions.length > 1)
-        ? `<button onclick="deleteScrim(${i})" class="text-xs font-bold px-3 py-2 rounded-xl border ${armedDelete === i ? 'bg-rose-600 border-rose-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-rose-400'}"><i class="fa-solid fa-trash mr-1"></i> ${armedDelete === i ? 'กดอีกครั้งเพื่อยืนยันลบ' : 'ลบ'}</button>` : '';
+    const del = isAdmin
+        ? `<button onclick="deleteScrim(${i})" class="text-xs font-bold px-3 py-2 rounded-xl border ${armedDelete === i ? 'bg-rose-600 border-rose-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-rose-400'}"><i class="fa-solid fa-trash mr-1"></i> ${armedDelete === i ? 'กดอีกครั้งเพื่อยืนยันลบ' : 'ลบการซ้อม'}</button>` : '';
     return `
     <div class="glass-card rounded-2xl border-2 border-pink-500/40 p-6 relative overflow-hidden bg-gradient-to-r from-gray-900 via-purple-950/20 to-gray-900 shadow-xl">
         <div class="absolute top-0 right-0 w-64 h-64 bg-pink-500/5 rounded-full blur-3xl pointer-events-none"></div>
@@ -230,10 +235,14 @@ function boxHtml(s, i) {
 function renderBoxes() {
     const c = document.getElementById('scrim-boxes');
     if (!c || !sessions) return;
+    if (!sessions.length) {
+        c.innerHTML = '<div class="glass-card rounded-2xl border border-dashed border-gray-700 p-8 text-center text-sm text-gray-400"><i class="fa-solid fa-inbox text-2xl mb-2 block text-gray-500"></i>ยังไม่มีการซ้อม' + (isAdmin ? ' — กด "เพิ่มการซ้อมใหม่" เพื่อเริ่มบันทึก' : '') + '</div>';
+        return;
+    }
     c.innerHTML = sessions.map((s, i) => boxHtml(s, i)).join('');
 }
 function deleteScrim(i) {
-    if (!isAdmin || sessions.length < 2) return;
+    if (!isAdmin) return;
     if (armedDelete !== i) {
         armedDelete = i; renderBoxes();
         setTimeout(() => { if (armedDelete === i) { armedDelete = null; renderBoxes(); } }, 3000);
@@ -327,9 +336,7 @@ function createScrim(event) {
     const n = parseInt(document.getElementById('ns-games').value, 10);
     const msg = document.getElementById('ns-msg');
     if (!date || !opponent || !(n >= 1 && n <= 7)) { msg.textContent = 'กรุณากรอกวันที่ คู่แข่ง และจำนวนเกม (1-7)'; return; }
-    const src = sessions[0].recaps;
-    const firstKey = Object.keys(src)[0];
-    const template = firstKey ? src[firstKey].players : [];
+    const template = PLAYER_TEMPLATE;
     const recaps = {}, meta = {};
     for (let g = 1; g <= n; g++) {
         recaps[g] = { videoUrl: '', players: template.map(p => ({ name: p.name, role: p.role, hero: '-', kda: '-', mvpRating: '-', note: '', isMvp: false, isSub: !!p.isSub })) };
